@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI,HTTPException
 import uvicorn
 from fastapi import Path
 from pydantic import BaseModel,Field
@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession,async_sessi
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from datetime import datetime
 from sqlalchemy import Float, Integer, String, DateTime, func, select
+from pydantic import BaseModel
 
 
 class User(BaseModel):
@@ -62,10 +63,53 @@ async def get_database():
         finally:
             await session.close()
 
-@app.get("/book/books")
+class BookBase(BaseModel):
+    id:int
+    bookname:str
+    author:str
+    price:float
+    publisher:str
+            
+@app.get("/book/all")
 async def get_book_list(db:AsyncSession = Depends(get_database)):
     result=await db.execute(select(Book))
     book=result.scalars().all()
+    return book
+
+@app.post("/book/add")
+async def add_book(book:BookBase,db:AsyncSession = Depends(get_database)):
+    book_obj=Book(**book.__dict__)
+    db.add(book_obj)
+    await db.commit()
+    return book
+
+@app.put("/book/updata")
+async def updata_book(book:BookBase,book_id:int,db:AsyncSession = Depends(get_database)):
+    db_book=await db.get(Book,book_id)
+    if db_book is None:
+        raise HTTPException(status_code=404,detail="书籍不存在")
+    db_book.bookname=book.bookname
+    db_book.author=book.author
+    db_book.price=book.price
+    db_book.publisher=book.publisher
+    db_book.id=book.id
+    await db.commit()
+    return db_book,{"msg":"图书上传成功"}
+
+@app.delete("/book/delete/{book_id}")
+async def delete_book(book_id:int,db:AsyncSession = Depends(get_database)):
+    db_book=await db.get(Book,book_id)
+    if db_book is None:
+        raise HTTPException(status_code=404,detail="书籍不存在")
+    await db.delete(db_book)
+    await db.commit()
+    return {"msg":"删除图书成功"}
+
+
+@app.get("/book/{book_id}")
+async def get_book_list(book_id:int,db:AsyncSession = Depends(get_database)):
+    result=await db.execute(select(Book).where(Book.id==book_id))
+    book=result.scalar_one_or_none()
     return book
 
 
